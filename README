@@ -1,1 +1,24 @@
- 
+Net::IRR::Cache provides a way to cache data from IRR databases and allows for
+small local modifications like adding or removing single prefixes from IRR data.
+
+Data is looked up for a given RPSL expression. The result is a list of AS
+numbers and route (or route6) objects contained in a given RPSL expression. The
+data can be further filtered by suplying ASes and routes to add or delete from
+IRR data in a YAML exception file. Finally data can be stored in a YAML data
+file for later use.
+
+To simplify reading cached IRR data as much as possible a Net::IRR::Read
+module is also provided.
+
+Fetching data from IRR is implemented via peval from IRRtoolset mantained by ISC
+and can be obtained at:
+http://www.isc.org/software/irrtoolset
+
+
+INSTALL
+
+The usual commands will sufice:
+
+    perl Makefile.PL
+    make
+    make install

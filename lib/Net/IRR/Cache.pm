@@ -26,10 +26,10 @@ sub load {
 
 	$self->{afi}       = $conf{afi}       || undef; # Address family to fetch data for. ipv4 or ipv6.
 	$self->{asn}       = $conf{asn}       || undef; # AS number of entity we are fetching data for.
-	$self->{rpsl}      = $conf{rpsl}      || undef; # RPSL expression to resolve. Can be prefixed with current AFI.
+	$self->{rpsl}      = $conf{rpsl}      || undef; # RPSL expression to resolve.
 	$self->{irrconfig} = $conf{irrconfig} || undef; # IRR host data (keys host, source, protocol).
 	$self->{peval_bin} = $conf{peval_bin} || undef; # Path to peval.
-	$self->{flat}      = $conf{flat}      || undef; # Flat or tree mode then gettinf route data (default flat).
+	$self->{flat}      = $conf{flat}      || undef; # Flat or tree mode when loading route data (default flat).
 	$self->{data_dir}  = $conf{data_dir}  || undef; # Path to irr-cache and exception files.
 	$self->{refresh}   = $conf{refresh}   || 0;     # Load data from IRR or use cached values in irr-cache.
 	$self->{debug}     = $conf{debug}     || 0;
@@ -64,6 +64,7 @@ sub load {
 
 	$self->_load_data_file();
 	$self->_load_exceptions();
+	$self->resolve();
 	return $self;
 }
 
@@ -72,6 +73,10 @@ sub load {
 sub write {
 	my $self = shift;
 	my $file = shift || undef;
+
+	if ($self->{resolved} == 0) {
+		$self->resolve();
+	}
 
 	$file = $self->{data_dir}.'/'.$Cache_Prefix.'.'.$self->{afi}.'.yaml' if (!defined $file);
 	my $yaml = YAML::Tiny->read( $file );
@@ -165,7 +170,7 @@ sub resolve {
 # Resolves given rpsl expression at IRR to a list of ases.
 sub as_set_to_as {
 	my $self = shift;
-	my $as_set = shift || $self->_get_rpsl();
+	my $as_set = shift || $self->{rpsl};
 	my $arg = sprintf("-no-as 'afi %s.unicast %s'", $self->{afi}, $as_set);
 
 	my $output = '';
@@ -184,7 +189,7 @@ sub as_set_to_as {
 # Resolves given rpsl expression at IRR to a list of routes.
 sub as_to_routes {
 	my $self =shift;
-	my $asn = shift || $self->_get_rpsl();
+	my $asn = shift || $self->{rpsl};
 	my $arg = sprintf("'afi %s.unicast %s'", $self->{afi}, $asn);
 
 	my $output = '';
@@ -228,7 +233,7 @@ sub _exceptions_flat {
 		my $asn = $_;
 		$asn =~ s/AS//;
 		foreach ( @{ $to_add->{$_} } ) {
-			$self->{data}->{ $self->_get_rpsl() }->{$_} = 1;
+			$self->{data}->{ $self->{rpsl} }->{$_} = 1;
 			$self->{data}->{$asn} = {};
 		}
 	}
@@ -300,19 +305,6 @@ sub _exceptions_tree {
 }
 
 
-# Returns an appropriate RPSL expression based on currend address family.
-sub _get_rpsl {
-	my $self = shift;
-	my $afi = $self->{afi};
-	if ($self->{rpsl} =~ /$afi:(\S+)/i) {
-		return $1;
-	}
-	else {
-		return $self->{rpsl};
-	}
-}
-
-
 # Loads current AS data from irr-cache YAML file.
 sub _load_data_file {
 	my $self = shift;
@@ -325,8 +317,8 @@ sub _load_data_file {
 	my $route_list = $yaml->[0]->{ $self->{asn} }->{route_list};
 	$self->{data} = {};
 	@{ $self->{data} }{ @{ $asn_list } } = (undef) x @{ $asn_list };
-	$self->{data}->{ $self->_get_rpsl() } = {};
-	@{ $self->{data}->{ $self->_get_rpsl() } }{ @{ $route_list } } = (1) x @{ $route_list };
+	$self->{data}->{ $self->{rpsl} } = {};
+	@{ $self->{data}->{ $self->{rpsl} } }{ @{ $route_list } } = (1) x @{ $route_list };
 }
 
 
@@ -374,7 +366,7 @@ __END__
 
 =pod
 
-= head1 NAME
+=head1 NAME
 
 Net::IRR::Cache - Cache results from Internet Routing Registy for later use
 
@@ -388,8 +380,8 @@ building BGP peering filters.
 
     use Net::IRR::Cache;
 
-    Get fresh data for AS set AS-ARNES
-    my $irr_fetcher = new Net::IRR::Cache(
+    # Get fresh data for AS set AS-ARNES
+    my $irr_fetcher = Net::IRR::Cache->load(
         afi       => 'ipv6',
         asn       => 'AS2107',
         rpsl      => 'AS-ARNES',
@@ -405,7 +397,8 @@ building BGP peering filters.
 
 =head1 DESCRIPTION
 
-Net::IRR::Cache
+Net::IRR::Cache provides a way to cache data from IRR databases and allows for
+small local modifications like adding or removing single prefixes from IRR data.
 
 Data is looked up for a given RPSL expression. The result is a list of AS
 numbers and route (or route6) objects contained in a given RPSL expression. The
@@ -413,7 +406,75 @@ data can be further filtered by suplying ASes and routes to add or delete from
 IRR data in a YAML exception file. Finally data can be stored in a YAML data
 file for later use.
 
-To facilitate reading cached IRR data a Net::IRR::Read module is also provided.
+To simplify reading cached IRR data as much as possible a L<Net::IRR::Read>
+module is also provided.
+
+Fetching data from IRR is implemented via peval from IRRtoolset mantained by ISC
+and can be obtained at:
+L<http://www.isc.org/software/irrtoolset>
+
+=head1 METHODS
+
+=head2 load
+
+The C<load> constructor loads data eather from an IRR database or from an
+existing cache. It also reads the exception file and removes or adds entries to
+the IRR data.
+
+The given RPSL expression is evaluated for a list of AS numbers and routes
+contained within.
+
+C<load> methods accepts the following named arguments:
+
+=over
+
+=item * afi => Address family to operate on. ipv4 or ipv6.
+
+=item * asn => AS number of entity we are fetching data for.
+
+=item * rpsl => RPSL expression to resolve.
+
+=item * irrconfig => Hashref wirg IRR host data (must have keys: host, source,
+protocol). Defaults to RIPE IRR database.
+
+=item * refresh => Load data from IRR or use cached values in irr-cache.
+
+=item * peval_bin => Path to peval binary. Defaults to C</usr/bin/peval>.
+
+=item * flat => All retrieved routes in a single list, discarding originating AS
+information (default). If set to false routes will be stored in a hash where the
+key is the AS the route belongs to. Setting this to false is experimental and
+will probably not work correctly.
+
+=item * data_dir => Directory path to read and write files from.
+
+=item * debug => Print debugging output to STDOUT.
+
+=back
+
+=head2 write $file
+
+Writes data in the current object to a cache file.
+
+Data is written to a YAML file with the current ASN as key. This key contains
+two more keys: asn_list with all AS numbers loaded and route_list with all IPv4
+or IPv6 prefixes.
+
+Any existing data in the cache file current ASN is removed before writing new
+data. All other data in the file is preserved. (Limitations of L<YAML::Tiny>
+module apply.)
+
+If you do not specify a file to wite to, the destination is generated based on
+C<$Data_Dir>, C<$Cache_Prefix> and current address family. For example:
+C</tmp/irr-cache.ipv6.yaml>.
+
+=head2 get_asn_list
+
+Return a listref with loaded AS numbers for current ASN and AFI.
+
+=head2 get_route_list
+
+Return a listref with loaded routes for current ASN and AFI.
 
 =head1 AUTHOR
 
