@@ -8,7 +8,7 @@ use YAML::Tiny;
 
 BEGIN {
 	our ($VERSION);
-	$VERSION = 0.10;
+	$VERSION = 0.11;
 }
 
 # where to save cache files and also to load exception files form
@@ -98,7 +98,7 @@ sub get_asn_list {
 		$self->resolve();
 	}
 	my @as_list = keys %{ $self->{data} };
-	@as_list = sort {$a <=> $b} grep { /^\d+$/ } map { s/AS//; $_ } @as_list;
+	@as_list = sort {$a <=> $b} map { s/AS//; $_ } grep { /^\d+$/ } @as_list;
 	return \@as_list;
 }
 
@@ -180,7 +180,8 @@ sub as_set_to_as {
 	if ($output !~ /NOT ANY/) {
 		$output =~ s/[\(\)\{\}]//g;
 		$output =~ s/[,\n]/ /g;
-		@list = split(/\s*AS/, $output);
+		$output =~ s/[\s]*AS([0-9]+)[\s]*/$1 /g;
+		@list = split(/\s+/, $output);
 	}
 	@{ $self->{data} }{ @list } = (undef) x @list;
 }

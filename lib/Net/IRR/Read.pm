@@ -8,7 +8,7 @@ use YAML::Tiny;
 
 BEGIN {
 	our ($VERSION);
-	$VERSION = 0.10;
+	$VERSION = 0.11;
 }
 
 # where to find cache files
